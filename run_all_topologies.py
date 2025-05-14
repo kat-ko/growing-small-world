@@ -73,7 +73,6 @@ class TrainingCallback(BaseCallback):
                 # Update TQDM postfix
                 if self.pbar:
                     self.pbar.set_postfix(
-                        ordered_dict=True,
                         ep_rew_mean=f"{mean_reward:.2f}", 
                         ep_len_mean=f"{mean_length:.2f}",
                         episodes=self.episode_count
@@ -187,9 +186,10 @@ def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> dict:
     policy_kwargs["net_arch"] = []
     
     # Create callbacks
+    progress_bar_desc = f"Training {topology_type.upper()} (Seed {cfg.seed})"
     training_callback = TrainingCallback(
         total_timesteps=cfg.training.total_timesteps,
-        description=topology_type
+        description=progress_bar_desc
     )
     callbacks = [
         training_callback,
@@ -208,7 +208,7 @@ def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> dict:
         gamma=cfg.training.gamma,
         gae_lambda=cfg.training.gae_lambda,
         clip_range=cfg.training.clip_range,
-        verbose=1,
+        verbose=0,
         tensorboard_log=topology_dir
     )
     

@@ -1,9 +1,0 @@
-avg_clustering: 0.16858675178987678
-avg_degree: 12.46875
-avg_path_length: 1.8998015873015872
-density: 0.09895833333333333
-n_hidden: 64
-n_in: 4
-n_out: 2
-n_total: 70
-type: random_sparse
