@@ -128,11 +128,17 @@ def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> dict:
     torch.manual_seed(cfg.seed)
     random.seed(cfg.seed)
     
+    # Create topology directory (used for monitor.csv and other outputs)
+    # Note: run_dir passed to this function is actually the seed_dir from main()
+    topology_specific_output_dir = os.path.join(run_dir, topology_type)
+    os.makedirs(topology_specific_output_dir, exist_ok=True)
+    monitor_file_path = os.path.join(topology_specific_output_dir, "monitor.csv")
+    
     # Create environment
     base_env = gym.make(cfg.env.name)
     base_env.reset(seed=cfg.seed)
     env = DummyVecEnv([lambda: base_env])
-    env = VecMonitor(env)  # Add VecMonitor wrapper to track episode information
+    env = VecMonitor(env, filename=monitor_file_path)  # <--- EXPLICIT FILENAME FOR VecMonitor
     
     # Get input and output dimensions
     n_in = env.observation_space.shape[0]
@@ -164,12 +170,8 @@ def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> dict:
     else:
         raise ValueError(f"Unknown topology type: {topology_type}")
     
-    # Create topology directory
-    topology_dir = os.path.join(run_dir, topology_type)
-    os.makedirs(topology_dir, exist_ok=True)
-    
     # Save topology metadata
-    with open(os.path.join(topology_dir, "topology_meta.yaml"), "w") as f:
+    with open(os.path.join(topology_specific_output_dir, "topology_meta.yaml"), "w") as f:
         yaml.dump(to_python_types(meta), f)
     
     # Create policy kwargs with masked topology
@@ -209,7 +211,7 @@ def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> dict:
         gae_lambda=cfg.training.gae_lambda,
         clip_range=cfg.training.clip_range,
         verbose=0,
-        tensorboard_log=topology_dir
+        tensorboard_log=topology_specific_output_dir # <--- USE new path (SB3 will create tb_log_name subdir in here)
     )
     
     # Train
@@ -220,23 +222,23 @@ def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> dict:
     )
     
     # Save final model
-    model.save(os.path.join(topology_dir, "final_model"))
+    model.save(os.path.join(topology_specific_output_dir, "final_model"))
     
     # Save visualizations
     plot_connectivity(
         adj_mask,
         f"{topology_type.upper()} Topology",
-        os.path.join(topology_dir, "connectivity.png")
+        os.path.join(topology_specific_output_dir, "connectivity.png")
     )
     plot_network(
         adj_mask,
         f"{topology_type.upper()} Network",
-        os.path.join(topology_dir, "network.png")
+        os.path.join(topology_specific_output_dir, "network.png")
     )
     plot_degree_distribution(
         adj_mask,
         f"{topology_type.upper()} Degree Distribution",
-        os.path.join(topology_dir, "degree_dist.png")
+        os.path.join(topology_specific_output_dir, "degree_dist.png")
     )
     
     # Print training summary
@@ -255,7 +257,7 @@ def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> dict:
         if 'avg_path_length' in stats:
             print(f"- Avg Path Length: {stats['avg_path_length']:.2f}")
     
-    print(f"\nResults saved to: {topology_dir}")
+    print(f"\nResults saved to: {topology_specific_output_dir}")
 
     return training_callback.summary
 
