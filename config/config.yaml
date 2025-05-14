@@ -25,7 +25,7 @@ training:
 # Evaluation configuration
 evaluation:
   topologies: ["fc", "rs", "sw", "modular"]  # Topologies to evaluate
-  n_seeds: 5  # Number of random seeds per topology
+  n_seeds: 3  # Number of random seeds per topology
   n_episodes: 100  # Number of evaluation episodes
 
 # Random seed

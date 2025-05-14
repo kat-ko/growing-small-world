@@ -1,0 +1,2 @@
+- env.name=CartPole-v1
+- training.total_timesteps=5000

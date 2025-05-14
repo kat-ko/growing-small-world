@@ -8,6 +8,7 @@ import random
 import yaml
 from pathlib import Path
 import pytest
+from tqdm.auto import tqdm
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
@@ -25,10 +26,13 @@ from topologies.viz import plot_connectivity, plot_network, plot_degree_distribu
 from topologies.sb3_integration import create_masked_policy_kwargs, zero_mask_grad, WeightClampingCallback
 
 class TrainingCallback(BaseCallback):
-    """Custom callback for printing training progress."""
+    """Custom callback for printing training progress using tqdm."""
     
-    def __init__(self, verbose=0):
+    def __init__(self, total_timesteps: int, description: str, verbose: int = 0):
         super().__init__(verbose)
+        self.total_timesteps = total_timesteps
+        self.description = description
+        self.pbar = None
         self.episode_rewards = []
         self.episode_lengths = []
         self.episode_count = 0
@@ -41,60 +45,45 @@ class TrainingCallback(BaseCallback):
             'network_stats': {}
         }
         
+    def _on_training_start(self) -> None:
+        """Called before the first rollout starts."""
+        self.pbar = tqdm(total=self.total_timesteps, desc=self.description, unit="step")
+        
     def _on_step(self) -> bool:
+        # Update TQDM progress bar
+        if self.pbar:
+            self.pbar.update(1)
+
         # Get episode info if available
-        if self.locals['infos']: # Check if infos is not empty
+        if self.locals['infos']: 
             info = self.locals['infos'][0]
-            if 'episode' in info:  # <-- NEW LOGIC: VecMonitor puts episode stats here
+            if 'episode' in info:  
                 ep_info = info['episode']
-                # Check if this is a new episode to avoid double counting,
-                # by seeing if the episode information is already processed
-                # This requires a more robust way to track processed episodes if 'ep_info_buffer' is not reliable
-                # For now, we assume 'infos[0]' gives us the most recent, potentially new, episode
-                
-                # A simple check to see if we've already processed this specific episode
-                # This might need a unique episode identifier if available in 'info'
-                # For now, we'll proceed assuming new info is always fresh
-                
                 self.episode_rewards.append(ep_info['r'])
                 self.episode_lengths.append(ep_info['l'])
                 self.episode_count += 1
                 
-                # Calculate statistics
                 mean_reward = np.mean(self.episode_rewards[-100:])
                 mean_length = np.mean(self.episode_lengths[-100:])
                 
-                # Update summary
                 self.summary['final_mean_reward'] = mean_reward
                 self.summary['final_mean_length'] = mean_length
                 self.summary['total_episodes'] = self.episode_count
                 
-                # Print progress less frequently (every 100 episodes)
-                if self.episode_count % 100000 == 0:  # Changed from 10 to 100
-                    print(f"\nEpisode {self.episode_count}")
-                    print(f"Mean reward (last 100000): {mean_reward:.1f}")
-                    print(f"Mean length (last 100000): {mean_length:.1f}")
-                    
-                    # Print network statistics
-                    for module in self.model.policy.modules():
-                        if isinstance(module, MaskedLinear):
-                            stats = module.get_structural_stats()
-                            print("\nNetwork Statistics:")
-                            print(f"- Sparsity: {stats['sparsity']:.3f}")
-                            print(f"- Avg Clustering: {stats['avg_clustering']:.3f}")
-                            print(f"- Avg Degree: {stats['avg_degree']:.1f}")
-                            if 'avg_path_length' in stats:
-                                print(f"- Avg Path Length: {stats['avg_path_length']:.2f}")
-                            
-                            # Update network stats in summary
-                            self.summary['network_stats'] = stats
+                # Update TQDM postfix
+                if self.pbar:
+                    self.pbar.set_postfix(
+                        ordered_dict=True,
+                        ep_rew_mean=f"{mean_reward:.2f}", 
+                        ep_len_mean=f"{mean_length:.2f}",
+                        episodes=self.episode_count
+                    )
                 
-                # Save best model
                 if mean_reward > self.best_mean_reward:
                     self.best_mean_reward = mean_reward
                     self.summary['best_mean_reward'] = mean_reward
-                    self.model.save(os.path.join(self.model.tensorboard_log, "best_model"))
-                    # print(f"\nNew best model saved! Mean reward: {mean_reward:.1f}")
+                    if self.model.tensorboard_log:
+                         self.model.save(os.path.join(self.model.tensorboard_log, "best_model"))
         
         return True
 
@@ -113,6 +102,12 @@ class TrainingCallback(BaseCallback):
             # else: # Optional: print a warning if no MaskedLinear layer is found
             #     print("Warning: No MaskedLinear layer found in features_extractor for stats collection.")
         return True
+
+    def _on_training_end(self) -> None:
+        """Called once the training ended."""
+        if self.pbar:
+            self.pbar.close()
+            self.pbar = None
 
 def to_python_types(d):
     """Recursively convert all values to Python built-in types."""
@@ -192,7 +187,10 @@ def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> dict:
     policy_kwargs["net_arch"] = []
     
     # Create callbacks
-    training_callback = TrainingCallback()
+    training_callback = TrainingCallback(
+        total_timesteps=cfg.training.total_timesteps,
+        description=topology_type
+    )
     callbacks = [
         training_callback,
         WeightClampingCallback()
@@ -263,18 +261,16 @@ def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> dict:
 
 @hydra.main(config_path="config", config_name="config", version_base=None)
 def main(cfg: DictConfig):
-    """Run training for all topologies."""
+    """Run training for all topologies across multiple seeds."""
     # Create results directory with timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = os.path.join("results", f"topology_comparison_{timestamp}")
     os.makedirs(run_dir, exist_ok=True)
     
-    # Save config
+    # Save main config for the entire run
     with open(os.path.join(run_dir, "config.yaml"), "w") as f:
         OmegaConf.save(cfg, f)
     
-    all_run_summaries = {} # <--- INITIALIZE DICTIONARY FOR ALL SUMMARIES
-
     # Define topologies to run
     topologies = [
         "fc",           # Fully Connected
@@ -283,27 +279,50 @@ def main(cfg: DictConfig):
         "sw_neat",      # Small World NEAT
         "sw_ws"         # Small World Watts-Strogatz
     ]
-    
-    # Run training for each topology
-    for topology in topologies:
-        summary = train_topology(cfg, topology, run_dir) # <--- NEW CALL, CAPTURE SUMMARY
-        all_run_summaries[topology] = summary # <--- STORE SUMMARY
-    
-    print(f"\nAll training complete! Results saved to: {run_dir}")
 
-    # Run pytest for unit tests
+    # --- new outer loop over seeds ---
+    # Ensure cfg.evaluation.n_seeds exists in your Hydra config
+    # For example, in config.yaml: 
+    # evaluation:
+    #   n_seeds: 3
+    n_seeds = cfg.evaluation.get('n_seeds', 1) # Default to 1 seed if not specified
+    print(f"\n=== Starting Experiment Run for {n_seeds} Seed(s) ===")
+
+    for seed_idx in range(n_seeds):
+        current_seed = cfg.seed + seed_idx # Allow overriding initial seed from CLI, then increment
+                                         # Or, if you prefer strict seed numbers 0,1,2... use seed_idx directly
+                                         # For now, using initial cfg.seed as base and incrementing.
+                                         # If cfg.seed is 0, seeds will be 0, 1, 2... for n_seeds=3.
+                                         # If cfg.seed is 42, seeds will be 42, 43, 44...
+        # Update config with the current seed for this iteration
+        cfg_copy = cfg.copy() # Operate on a copy for this seed run to avoid polluting original cfg for next seed
+        cfg_copy.seed = current_seed 
+        
+        print(f"\n--- Running Seed {seed_idx + 1}/{n_seeds} (Actual Seed Value: {current_seed}) ---")
+        seed_dir = os.path.join(run_dir, f"seed_{current_seed}") # Use actual seed value in dir name
+        os.makedirs(seed_dir, exist_ok=True)
+
+        seed_summaries = {}                 # collect summaries for this seed
+        for topology_type in topologies:         # existing inner loop (renamed topology to topology_type for clarity)
+            summary = train_topology(cfg_copy, topology_type, seed_dir) # Pass cfg_copy and seed_dir
+            seed_summaries[topology_type] = summary
+
+        # save one YAML per seed
+        seed_summary_file = os.path.join(seed_dir, "training_summaries.yaml")
+        with open(seed_summary_file, "w") as f:
+            yaml.dump(to_python_types(seed_summaries), f, indent=4)
+        print(f"Training summaries for seed {current_seed} saved to: {seed_summary_file}")
+    
+    print(f"\nAll training across all seeds complete! Results saved to: {run_dir}")
+
+    # Run pytest for unit tests (outside the seed loop, runs once)
     print("\n=== Running Unit Tests ===")
-    test_exit_code = pytest.main(["-v", "tests/test_mask.py"])
+    # test_exit_code = pytest.main(["-v", "tests/test_mask.py"]) # Use -q for less verbose output as requested
+    test_exit_code = pytest.main(["-q", "tests/test_mask.py"])
     if test_exit_code == 0:
         print("All tests passed!")
     else:
         print(f"Pytest finished with exit code: {test_exit_code}. Some tests may have failed.")
-
-    # Save all training summaries
-    summaries_file_path = os.path.join(run_dir, "all_training_summaries.yaml")
-    with open(summaries_file_path, "w") as f:
-        yaml.dump(to_python_types(all_run_summaries), f, indent=4) # Using to_python_types for consistency
-    print(f"\nConsolidated training summaries saved to: {summaries_file_path}")
 
 if __name__ == "__main__":
     main() 
