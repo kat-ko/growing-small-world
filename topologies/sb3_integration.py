@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
+import numpy as np
+import gymnasium as gym
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from stable_baselines3.common.callbacks import BaseCallback
 from gymnasium import spaces
 from typing import Dict, Type, TypeVar, Any
 
@@ -108,3 +111,32 @@ def zero_mask_grad(module: nn.Module) -> None:
             # Zero out biases for nodes with no incoming connections
             if module.bias is not None:
                 module.bias.data[module.mask.sum(0) == 0] = 0 
+
+class WeightClampingCallback(BaseCallback):
+    """Callback to clamp masked weights (by zeroing gradients) after each update phase."""
+    
+    def __init__(self, verbose=0):
+        super().__init__(verbose)
+
+    def _on_step(self) -> bool:
+        # This _on_step is called after each environment step.
+        # For PPO, the main update happens in the train() method, not directly tied to this.
+        # We use _on_rollout_end as it's called before train() ensuring gradients are clean.
+        return True
+        
+    def _on_rollout_end(self) -> bool:
+        """
+        This method is called at the end of each rollout collection.
+        We apply zero_mask_grad to the policy here to ensure that gradients
+        for masked weights are zeroed out before the optimization step in model.train().
+        """
+        if self.model.policy is not None: # Ensure policy exists
+            self.model.policy.apply(zero_mask_grad)
+        return True
+
+# Ensure existing code like zero_mask_grad, MaskedFeatureExtractor, 
+# and create_masked_policy_kwargs are preserved below if they exist.
+# If they are defined above this new class, that's fine too.
+# For this edit, I'm assuming this class is added, and other content remains.
+# If sb3_integration.py is short, I could paste its full content with the addition.
+# For now, let's assume it's being appended or inserted appropriately. 

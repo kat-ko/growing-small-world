@@ -1,0 +1,30 @@
+fc:
+    best_mean_reward: 46.279998779296875
+    final_mean_length: 46.25
+    final_mean_reward: 46.25
+    network_stats: {}
+    total_episodes: 296
+modular:
+    best_mean_reward: 26.071428298950195
+    final_mean_length: 21.21
+    final_mean_reward: 21.209999084472656
+    network_stats: {}
+    total_episodes: 446
+rs:
+    best_mean_reward: 38.790000915527344
+    final_mean_length: 38.66
+    final_mean_reward: 38.65999984741211
+    network_stats: {}
+    total_episodes: 342
+sw_neat:
+    best_mean_reward: 26.071428298950195
+    final_mean_length: 21.96
+    final_mean_reward: 21.959999084472656
+    network_stats: {}
+    total_episodes: 437
+sw_ws:
+    best_mean_reward: 26.071428298950195
+    final_mean_length: 20.64
+    final_mean_reward: 20.639999389648438
+    network_stats: {}
+    total_episodes: 451

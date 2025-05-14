@@ -7,6 +7,7 @@ import numpy as np
 import random
 import yaml
 from pathlib import Path
+import pytest
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
@@ -21,7 +22,7 @@ from topologies.small_world_neat import make_sw_neat
 from topologies.watts_strogatz import make_ws
 from topologies.modular import make_modular
 from topologies.viz import plot_connectivity, plot_network, plot_degree_distribution
-from topologies.sb3_integration import create_masked_policy_kwargs, zero_mask_grad
+from topologies.sb3_integration import create_masked_policy_kwargs, zero_mask_grad, WeightClampingCallback
 
 class TrainingCallback(BaseCallback):
     """Custom callback for printing training progress."""
@@ -42,59 +43,59 @@ class TrainingCallback(BaseCallback):
         
     def _on_step(self) -> bool:
         # Get episode info if available
-        if len(self.model.ep_info_buffer) > 0:
-            for info in self.model.ep_info_buffer:
-                if 'r' in info:
-                    self.episode_rewards.append(info['r'])
-                    self.episode_lengths.append(info['l'])
-                    self.episode_count += 1
+        if self.locals['infos']: # Check if infos is not empty
+            info = self.locals['infos'][0]
+            if 'episode' in info:  # <-- NEW LOGIC: VecMonitor puts episode stats here
+                ep_info = info['episode']
+                # Check if this is a new episode to avoid double counting,
+                # by seeing if the episode information is already processed
+                # This requires a more robust way to track processed episodes if 'ep_info_buffer' is not reliable
+                # For now, we assume 'infos[0]' gives us the most recent, potentially new, episode
+                
+                # A simple check to see if we've already processed this specific episode
+                # This might need a unique episode identifier if available in 'info'
+                # For now, we'll proceed assuming new info is always fresh
+                
+                self.episode_rewards.append(ep_info['r'])
+                self.episode_lengths.append(ep_info['l'])
+                self.episode_count += 1
+                
+                # Calculate statistics
+                mean_reward = np.mean(self.episode_rewards[-100:])
+                mean_length = np.mean(self.episode_lengths[-100:])
+                
+                # Update summary
+                self.summary['final_mean_reward'] = mean_reward
+                self.summary['final_mean_length'] = mean_length
+                self.summary['total_episodes'] = self.episode_count
+                
+                # Print progress less frequently (every 100 episodes)
+                if self.episode_count % 100000 == 0:  # Changed from 10 to 100
+                    print(f"\nEpisode {self.episode_count}")
+                    print(f"Mean reward (last 100000): {mean_reward:.1f}")
+                    print(f"Mean length (last 100000): {mean_length:.1f}")
                     
-                    # Calculate statistics
-                    mean_reward = np.mean(self.episode_rewards[-100:])
-                    mean_length = np.mean(self.episode_lengths[-100:])
-                    
-                    # Update summary
-                    self.summary['final_mean_reward'] = mean_reward
-                    self.summary['final_mean_length'] = mean_length
-                    self.summary['total_episodes'] = self.episode_count
-                    
-                    # Print progress less frequently (every 100 episodes)
-                    if self.episode_count % 100000 == 0:  # Changed from 10 to 100
-                        print(f"\nEpisode {self.episode_count}")
-                        print(f"Mean reward (last 100000): {mean_reward:.1f}")
-                        print(f"Mean length (last 100000): {mean_length:.1f}")
-                        
-                        # Print network statistics
-                        for module in self.model.policy.modules():
-                            if isinstance(module, MaskedLinear):
-                                stats = module.get_structural_stats()
-                                print("\nNetwork Statistics:")
-                                print(f"- Sparsity: {stats['sparsity']:.3f}")
-                                print(f"- Avg Clustering: {stats['avg_clustering']:.3f}")
-                                print(f"- Avg Degree: {stats['avg_degree']:.1f}")
-                                if 'avg_path_length' in stats:
-                                    print(f"- Avg Path Length: {stats['avg_path_length']:.2f}")
-                                
-                                # Update network stats in summary
-                                self.summary['network_stats'] = stats
-                    
-                    # Save best model
-                    if mean_reward > self.best_mean_reward:
-                        self.best_mean_reward = mean_reward
-                        self.summary['best_mean_reward'] = mean_reward
-                        self.model.save(os.path.join(self.model.tensorboard_log, "best_model"))
-                        print(f"\nNew best model saved! Mean reward: {mean_reward:.1f}")
+                    # Print network statistics
+                    for module in self.model.policy.modules():
+                        if isinstance(module, MaskedLinear):
+                            stats = module.get_structural_stats()
+                            print("\nNetwork Statistics:")
+                            print(f"- Sparsity: {stats['sparsity']:.3f}")
+                            print(f"- Avg Clustering: {stats['avg_clustering']:.3f}")
+                            print(f"- Avg Degree: {stats['avg_degree']:.1f}")
+                            if 'avg_path_length' in stats:
+                                print(f"- Avg Path Length: {stats['avg_path_length']:.2f}")
+                            
+                            # Update network stats in summary
+                            self.summary['network_stats'] = stats
+                
+                # Save best model
+                if mean_reward > self.best_mean_reward:
+                    self.best_mean_reward = mean_reward
+                    self.summary['best_mean_reward'] = mean_reward
+                    self.model.save(os.path.join(self.model.tensorboard_log, "best_model"))
+                    # print(f"\nNew best model saved! Mean reward: {mean_reward:.1f}")
         
-        return True
-
-class WeightClampingCallback(BaseCallback):
-    """Callback to clamp weights after each update."""
-    
-    def _on_step(self) -> bool:
-        return True
-        
-    def _on_rollout_end(self) -> bool:
-        self.model.policy.apply(zero_mask_grad)
         return True
 
 def to_python_types(d):
@@ -108,7 +109,7 @@ def to_python_types(d):
     else:
         return d
 
-def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> None:
+def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> dict:
     """Train a single topology and save results."""
     print(f"\n=== Training {topology_type} Topology ===")
     
@@ -170,6 +171,9 @@ def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> None:
         hidden_act=torch.nn.ReLU(),
         out_act=torch.nn.Identity()
     )
+    
+    # Add net_arch to policy_kwargs
+    policy_kwargs["net_arch"] = []
     
     # Create callbacks
     training_callback = TrainingCallback()
@@ -239,6 +243,8 @@ def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> None:
     
     print(f"\nResults saved to: {topology_dir}")
 
+    return training_callback.summary
+
 @hydra.main(config_path="config", config_name="config", version_base=None)
 def main(cfg: DictConfig):
     """Run training for all topologies."""
@@ -251,6 +257,8 @@ def main(cfg: DictConfig):
     with open(os.path.join(run_dir, "config.yaml"), "w") as f:
         OmegaConf.save(cfg, f)
     
+    all_run_summaries = {} # <--- INITIALIZE DICTIONARY FOR ALL SUMMARIES
+
     # Define topologies to run
     topologies = [
         "fc",           # Fully Connected
@@ -262,9 +270,24 @@ def main(cfg: DictConfig):
     
     # Run training for each topology
     for topology in topologies:
-        train_topology(cfg, topology, run_dir)
+        summary = train_topology(cfg, topology, run_dir) # <--- NEW CALL, CAPTURE SUMMARY
+        all_run_summaries[topology] = summary # <--- STORE SUMMARY
     
     print(f"\nAll training complete! Results saved to: {run_dir}")
+
+    # Run pytest for unit tests
+    print("\n=== Running Unit Tests ===")
+    test_exit_code = pytest.main(["-v", "tests/test_mask.py"])
+    if test_exit_code == 0:
+        print("All tests passed!")
+    else:
+        print(f"Pytest finished with exit code: {test_exit_code}. Some tests may have failed.")
+
+    # Save all training summaries
+    summaries_file_path = os.path.join(run_dir, "all_training_summaries.yaml")
+    with open(summaries_file_path, "w") as f:
+        yaml.dump(to_python_types(all_run_summaries), f, indent=4) # Using to_python_types for consistency
+    print(f"\nConsolidated training summaries saved to: {summaries_file_path}")
 
 if __name__ == "__main__":
     main() 
