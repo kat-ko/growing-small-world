@@ -1,0 +1,50 @@
+fc:
+    best_mean_reward: 104.87999725341797
+    final_mean_length: 104.88
+    final_mean_reward: 104.87999725341797
+    network_stats:
+        avg_clustering: 1.0
+        avg_degree: 140.0
+        avg_path_length: 1.0
+        sparsity: 0.0
+    total_episodes: 386
+modular:
+    best_mean_reward: 32.83333206176758
+    final_mean_length: 22.23
+    final_mean_reward: 22.229999542236328
+    network_stats:
+        avg_clustering: 0.6692705138735657
+        avg_degree: 26.8
+        avg_path_length: 1.968944099378882
+        sparsity: 0.8085714280605316
+    total_episodes: 915
+rs:
+    best_mean_reward: 86.47000122070312
+    final_mean_length: 86.47
+    final_mean_reward: 86.47000122070312
+    network_stats:
+        avg_clustering: 0.20137641769994705
+        avg_degree: 14.085714285714285
+        avg_path_length: 1.8625258799171842
+        sparsity: 0.8993877544999123
+    total_episodes: 455
+sw_neat:
+    best_mean_reward: 32.83333206176758
+    final_mean_length: 22.67
+    final_mean_reward: 22.670000076293945
+    network_stats:
+        avg_clustering: 0.44173937173937183
+        avg_degree: 11.228571428571428
+        avg_path_length: 2.543685300207039
+        sparsity: 0.9197959154844284
+    total_episodes: 936
+sw_ws:
+    best_mean_reward: 32.83333206176758
+    final_mean_length: 23.4
+    final_mean_reward: 23.399999618530273
+    network_stats:
+        avg_clustering: 0.3707369614512472
+        avg_degree: 11.314285714285715
+        avg_path_length: 3.1196687370600413
+        sparsity: 0.9191836714744568
+    total_episodes: 914

@@ -10,6 +10,8 @@ python aggregate_results.py --results_dir results/topology_comparison_20250514_1
 """
 
 import argparse, pathlib, yaml, pandas as pd, numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 def monitor_metrics(mfile: pathlib.Path):
     try:
@@ -93,12 +95,78 @@ def main():
     ap.add_argument("--results_dir", required=True)
     ap.add_argument("--out", default="results.parquet")
     args = ap.parse_args()
-    df = walk_run_dir(pathlib.Path(args.results_dir))
+    
+    results_path = pathlib.Path(args.results_dir)
+    df = walk_run_dir(results_path)
+    
     if df.empty:
         print("Warning: No data found. Output Parquet file will be empty or not created.")
     else:
+        # Save the main data to Parquet
         df.to_parquet(args.out)
         print(f"Wrote {len(df)} rows to {args.out}")
+
+        # Create a subdirectory for plots within the processed results_dir
+        plots_dir = results_path / "plots"
+        plots_dir.mkdir(parents=True, exist_ok=True)
+        run_name = results_path.name # Get the name of the specific run folder for titles
+
+        # Generate and save boxplot for final returns
+        try:
+            plt.figure(figsize=(12, 7)) # Adjusted figure size for potentially more info
+            sns.boxplot(x="topology", y="final", data=df)
+            plt.title(f"Final Return Distribution\nRun: {run_name}")
+            plt.xticks(rotation=45, ha='right') 
+            plt.tight_layout() 
+            plot_path = plots_dir / "final_return_boxplot.png"
+            plt.savefig(plot_path)
+            plt.close() 
+            print(f"Saved boxplot for final returns to {plot_path}")
+        except Exception as e:
+            print(f"Warning: Could not generate or save boxplot for final returns: {e}")
+
+        # New: Generate and save boxplot for reachability
+        if 'reachability' in df.columns:
+            try:
+                plt.figure(figsize=(12, 7))
+                sns.boxplot(x="topology", y="reachability", data=df)
+                plt.title(f"IO Reachability Distribution\nRun: {run_name}")
+                plt.xticks(rotation=45, ha='right')
+                plt.ylabel("Reachability Score") # Add y-axis label
+                plt.tight_layout()
+                reach_plot_path = plots_dir / "reachability_boxplot.png"
+                plt.savefig(reach_plot_path)
+                plt.close()
+                print(f"Saved boxplot for reachability to {reach_plot_path}")
+            except Exception as e:
+                print(f"Warning: Could not generate or save boxplot for reachability: {e}")
+        else:
+            print("Info: 'reachability' column not found in DataFrame. Skipping reachability boxplot.")
+
+        # Generate and save ENHANCED summary statistics
+        try:
+            # Select columns for which to generate describe() stats
+            cols_to_describe = ['final', 'auc', 'step80', 'reachability']
+            # Filter out columns not actually present in the DataFrame to avoid errors
+            existing_cols_to_describe = [col for col in cols_to_describe if col in df.columns]
+            
+            if existing_cols_to_describe:
+                summary_stats = df.groupby("topology")[existing_cols_to_describe].describe()
+                # Transpose for better readability if there are many stats per topology
+                # summary_stats = summary_stats.transpose()
+                stats_path = plots_dir / "detailed_summary_stats.csv"
+                summary_stats.to_csv(stats_path)
+                print(f"Saved detailed summary stats to {stats_path}")
+                
+                # Also print reachability describe to console for quick view
+                if 'reachability' in existing_cols_to_describe:
+                    print("\nReachability Statistics by Topology:")
+                    print(summary_stats['reachability'])
+            else:
+                print("Info: No columns selected for description were found in DataFrame. Skipping detailed summary stats.")
+
+        except Exception as e:
+            print(f"Warning: Could not generate or save detailed summary stats: {e}")
 
 if __name__ == "__main__":
     main() 

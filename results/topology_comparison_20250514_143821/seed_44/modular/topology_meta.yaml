@@ -1,0 +1,17 @@
+avg_clustering: 0.7098862156812181
+avg_degree: 26.0
+avg_path_length: 2.036438923395445
+core_avg_clustering: 0.7775623742281544
+core_avg_degree: 28.0625
+core_avg_path_length: 1.9429563492063493
+core_density: 0.22271825396825398
+density: 0.18840579710144928
+modularity: 0.6340515394503274
+n_communities: 4.0
+n_hidden: 64.0
+n_in: 4.0
+n_out: 2.0
+n_total: 70.0
+p_inter: 0.04782969000000002
+p_intra: 0.8
+type: modular

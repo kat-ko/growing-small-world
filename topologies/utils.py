@@ -129,3 +129,36 @@ def _wire_inputs_outputs(adj_mask, n_in, n_hidden, n_out, fan_k=2):
             adj_mask[n_in + j, n_in + n_hidden + i] = True
     
     return adj_mask 
+
+def io_reachability(adj_mask: torch.Tensor, n_in: int, n_hidden: int, n_out: int) -> float:
+    """Calculate the percentage of output nodes reachable from all input nodes."""
+    # Ensure adj_mask is on CPU and converted to NumPy for NetworkX
+    G = nx.from_numpy_array(adj_mask.cpu().numpy(), create_using=nx.DiGraph)
+    
+    inputs  = range(n_in)
+    output_start_idx = n_in + n_hidden
+    output_end_idx = n_in + n_hidden + n_out
+    outputs = range(output_start_idx, output_end_idx)
+    
+    reachable_outputs_count = 0
+    if n_out == 0: 
+        return 0.0 
+        
+    for o_node in outputs:
+        if o_node not in G:
+            continue
+
+        all_inputs_can_reach_output = True
+        for i_node in inputs:
+            if i_node not in G:
+                all_inputs_can_reach_output = False
+                break 
+            
+            if not nx.has_path(G, i_node, o_node):
+                all_inputs_can_reach_output = False
+                break 
+        
+        if all_inputs_can_reach_output:
+            reachable_outputs_count += 1
+            
+    return reachable_outputs_count / n_out 

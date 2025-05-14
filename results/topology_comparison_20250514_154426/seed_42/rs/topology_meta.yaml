@@ -1,0 +1,11 @@
+active_hidden: 29
+avg_clustering: 0.16224366448824645
+avg_degree: 12.4375
+avg_path_length: 1.8913690476190477
+density: 0.09871031746031746
+n_hidden: 64
+n_in: 4
+n_out: 2
+n_total: 70
+reachability: 1.0
+type: random_sparse

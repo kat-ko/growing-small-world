@@ -1,0 +1,2 @@
+- training.total_timesteps=10000
+- evaluation.n_seeds=3

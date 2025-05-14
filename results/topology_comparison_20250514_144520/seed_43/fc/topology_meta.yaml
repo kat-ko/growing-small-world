@@ -1,0 +1,9 @@
+avg_clustering: 1.0
+avg_degree: 69
+avg_path_length: 1.0
+n_hidden: 64
+n_in: 4
+n_out: 2
+n_total: 70
+sparsity: 0.0
+type: fully_connected

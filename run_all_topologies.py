@@ -24,6 +24,7 @@ from topologies.watts_strogatz import make_ws
 from topologies.modular import make_modular
 from topologies.viz import plot_connectivity, plot_network, plot_degree_distribution
 from topologies.sb3_integration import create_masked_policy_kwargs, zero_mask_grad, WeightClampingCallback
+from topologies.utils import io_reachability
 
 class TrainingCallback(BaseCallback):
     """Custom callback for printing training progress using tqdm."""
@@ -119,6 +120,11 @@ def to_python_types(d):
     else:
         return d
 
+def active_features(mask, n_in, n_hidden, n_out):
+    # count hidden columns that receive at least one connection from any input row
+    inp_rows = mask[:n_in, n_in:-n_out]
+    return (inp_rows.sum(dim=0) > 0).sum().item()
+
 def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> dict:
     """Train a single topology and save results."""
     print(f"\n=== Training {topology_type} Topology ===")
@@ -170,7 +176,20 @@ def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> dict:
     else:
         raise ValueError(f"Unknown topology type: {topology_type}")
     
-    # Save topology metadata
+    # Calculate and store active hidden units
+    meta['active_hidden'] = active_features(adj_mask, n_in, cfg.topology.n_hidden, n_out)
+    print(f"Active hidden units: {meta['active_hidden']} / {cfg.topology.n_hidden}")
+    
+    # Calculate and store IO reachability
+    if isinstance(adj_mask, torch.Tensor): # Ensure adj_mask is a tensor before passing
+        meta['reachability'] = io_reachability(adj_mask, n_in, cfg.topology.n_hidden, n_out)
+        print(f"IO reachability for {topology_type}: {meta['reachability']:.3f}") # Print with 3 decimal places
+    else:
+        # This case should ideally not be hit if make_* functions are consistent
+        print(f"Warning: adj_mask for {topology_type} is not a Tensor. Skipping reachability calculation.")
+        meta['reachability'] = -1.0 # Or some other indicator for missing data
+
+    # Save topology metadata (meta now includes reachability)
     with open(os.path.join(topology_specific_output_dir, "topology_meta.yaml"), "w") as f:
         yaml.dump(to_python_types(meta), f)
     
