@@ -98,6 +98,22 @@ class TrainingCallback(BaseCallback):
         
         return True
 
+    def _on_rollout_end(self) -> bool:
+        """Called at the end of each rollout collection."""
+        if self.model and self.model.policy and hasattr(self.model.policy, 'features_extractor'):
+            extractor = self.model.policy.features_extractor
+            # Find the MaskedLinear layer, similar to the test
+            mlayer = next((m for m in extractor.modules() if isinstance(m, MaskedLinear)), None)
+            if mlayer:
+                try:
+                    stats = mlayer.get_structural_stats()
+                    self.summary['network_stats'] = stats
+                except Exception as e:
+                    print(f"Warning: Could not retrieve structural stats in TrainingCallback: {e}")
+            # else: # Optional: print a warning if no MaskedLinear layer is found
+            #     print("Warning: No MaskedLinear layer found in features_extractor for stats collection.")
+        return True
+
 def to_python_types(d):
     """Recursively convert all values to Python built-in types."""
     if isinstance(d, dict):

@@ -48,6 +48,10 @@ class MaskedLinear(nn.Module):
         # Register backward hook to mask gradients
         self.register_full_backward_hook(self._mask_gradients)
         
+    @property
+    def weight(self):
+        return self.W
+
     def _mask_gradients(self, module, grad_input, grad_output):
         """Mask gradients to respect the topology."""
         with torch.no_grad():
