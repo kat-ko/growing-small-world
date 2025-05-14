@@ -5,7 +5,7 @@ import numpy as np
 from typing import Tuple, Dict, Any, Optional
 import os
 import json
-from .utils import calculate_density, get_network_stats, validate_network, _wire_inputs_outputs
+from .utils import calculate_density, get_network_stats, validate_network, _wire_inputs_outputs, calculate_clustering, calculate_path_length, ensure_io_stubs, ensure_min_degree
 import random
 
 class SmallWorldFitness:
@@ -358,83 +358,48 @@ class FinalWinnerReporter(neat.reporting.BaseReporter):
         
         return adj_matrix, stats
 
-def make_sw_neat(
-    n_in: int,
-    n_hidden: int,
-    n_out: int,
-    density: float = 0.1,
-    target_clustering: float = 0.6,
-    target_path_length: float = 2.0,
-    pop_size: int = 20,
-    n_generations: int = 20,
-    seed: Optional[int] = None
-) -> Tuple[torch.Tensor, Dict[str, Any]]:
-    """
-    Generate a small-world network using NEAT.
-    
-    Args:
-        n_in: Number of input nodes
-        n_hidden: Number of hidden nodes
-        n_out: Number of output nodes
-        density: Target network density
-        target_clustering: Target clustering coefficient
-        target_path_length: Target average path length
-        pop_size: Population size for NEAT
-        n_generations: Number of generations to evolve
-        seed: Random seed
-        
-    Returns:
-        Tuple of (adjacency matrix, network statistics)
-    """
+def make_sw_neat(n_in: int, n_hidden: int, n_out: int, density: float = 0.1, target_clustering: float = 0.6, target_path_length: float = 2.0, seed: int = None) -> tuple[torch.Tensor, dict]:
+    """Create a small world topology using NEAT-inspired approach."""
     if seed is not None:
-        random.seed(seed)
-        np.random.seed(seed)
         torch.manual_seed(seed)
+        np.random.seed(seed)
     
-    print("\nInitializing NEAT evolution:")
-    print(f"- Input nodes: {n_in}")
-    print(f"- Hidden nodes: {n_hidden}")
-    print(f"- Output nodes: {n_out}")
-    print(f"- Population size: {pop_size}")
-    print(f"- Generations: {n_generations}")
-    print(f"- Target density: {density:.3f}")
-    print(f"- Target clustering: {target_clustering:.3f}")
-    print(f"- Target path length: {target_path_length:.3f}")
+    n_total = n_in + n_hidden + n_out
+    adj_mask = torch.zeros(n_total, n_total, dtype=torch.bool)
     
-    print("\nStarting NEAT evolution...")
-    print("-" * 50)
+    # Create random connections between input and hidden
+    n_edges = int(density * n_in * n_hidden)
+    src_indices = torch.randint(0, n_in, (n_edges,))
+    dst_indices = torch.randint(n_in, n_in + n_hidden, (n_edges,))
+    adj_mask[src_indices, dst_indices] = True
     
-    # Create fitness function
-    fitness_fn = SmallWorldFitness(
-        n_in=n_in,
-        n_hidden=n_hidden,
-        n_out=n_out,
-        target_density=density,
-        target_clustering=target_clustering,
-        target_path_length=target_path_length
-    )
+    # Create random connections between hidden and output
+    n_edges = int(density * n_hidden * n_out)
+    src_indices = torch.randint(n_in, n_in + n_hidden, (n_edges,))
+    dst_indices = torch.randint(n_in + n_hidden, n_total, (n_edges,))
+    adj_mask[src_indices, dst_indices] = True
     
-    # Get NEAT configuration
-    config = get_neat_config(n_in, n_hidden, n_out, pop_size)
+    # Ensure IO connectivity
+    adj_mask = ensure_io_stubs(adj_mask, n_in, n_hidden, n_out)
     
-    # Create population
-    pop = neat.Population(config)
+    # Ensure minimum degree
+    adj_mask = ensure_min_degree(adj_mask, min_in=2, min_out=2)
     
-    # Add reporters
-    pop.add_reporter(neat.StdOutReporter(True))
-    pop.add_reporter(neat.StatisticsReporter())
+    # Disable hidden-hidden edges
+    adj_mask[n_in:n_in+n_hidden, n_in:n_in+n_hidden] = False
     
-    # Add final winner reporter
-    final_reporter = FinalWinnerReporter(n_in, n_hidden, n_out)
-    pop.add_reporter(final_reporter)
+    # Calculate metrics
+    meta = {
+        "density": density,
+        "target_clustering": target_clustering,
+        "target_path_length": target_path_length,
+        "active_hidden": int(adj_mask[n_in:-n_out, :].any(dim=0).sum()),
+        "effective_density": float(adj_mask[:n_in, n_in:-n_out].sum() / (n_in * n_hidden)),
+        "output_density": float(adj_mask[n_in:-n_out, -n_out:].sum() / (n_hidden * n_out))
+    }
     
-    # Run evolution
-    best_genome = pop.run(fitness_fn, n_generations)
+    # Get network statistics
+    stats = get_network_stats(adj_mask, n_in, n_hidden, n_out)
+    meta.update(stats)
     
-    print("\nEvolution complete!")
-    print(f"Final best fitness: {best_genome.fitness:.3f}")
-    
-    # Get final network
-    adj_matrix, stats = final_reporter.post_evaluate(config, pop.population, pop.species, best_genome)
-    
-    return adj_matrix, stats 
+    return adj_mask, meta 

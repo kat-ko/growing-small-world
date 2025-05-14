@@ -18,6 +18,21 @@ def calculate_density(adj_matrix: torch.Tensor) -> float:
     possible_edges = n * (n - 1)  # Directed graph, no self-loops
     return edges / possible_edges if possible_edges > 0 else 0.0
 
+def calculate_clustering(adj_matrix: torch.Tensor) -> float:
+    """Calculate average clustering coefficient for the network."""
+    G = nx.from_numpy_array(adj_matrix.cpu().numpy(), create_using=nx.DiGraph)
+    G_undirected = G.to_undirected()
+    return float(nx.average_clustering(G_undirected))
+
+def calculate_path_length(adj_matrix: torch.Tensor) -> float:
+    """Calculate average shortest path length for the network."""
+    G = nx.from_numpy_array(adj_matrix.cpu().numpy(), create_using=nx.DiGraph)
+    G_undirected = G.to_undirected()
+    try:
+        return float(nx.average_shortest_path_length(G_undirected))
+    except nx.NetworkXError:
+        return float('inf')  # Return infinity if graph is not connected
+
 def get_network_stats(adj_matrix: torch.Tensor, n_in: int = 0, n_hidden: int = None, n_out: int = 0) -> Dict[str, float]:
     """
     Calculate network statistics for both core and full graph.
@@ -162,3 +177,54 @@ def io_reachability(adj_mask: torch.Tensor, n_in: int, n_hidden: int, n_out: int
             reachable_outputs_count += 1
             
     return reachable_outputs_count / n_out 
+
+def ensure_io_stubs(adj: torch.Tensor, n_in: int, n_hidden: int, n_out: int) -> torch.Tensor:
+    """Ensure every hidden unit has at least one input and one output connection."""
+    # INPUT → hidden
+    for h in range(n_hidden):
+        col = n_in + h
+        if adj[:n_in, col].sum() == 0:
+            src = np.random.randint(0, n_in)
+            adj[src, col] = True
+    
+    # hidden → OUTPUT
+    for h in range(n_hidden):
+        row = n_in + h
+        if adj[row, -n_out:].sum() == 0:
+            dst = -np.random.randint(1, n_out + 1)  # pick a random output
+            adj[row, dst] = True
+    return adj
+
+# Deprecated: Use ensure_io_stubs instead
+def ensure_input_stubs(adj: torch.Tensor, n_in: int, n_hidden: int) -> torch.Tensor:
+    """Deprecated: Use ensure_io_stubs instead."""
+    print("Warning: ensure_input_stubs is deprecated. Use ensure_io_stubs instead.")
+    return ensure_io_stubs(adj, n_in, n_hidden, 0)  # Pass 0 for n_out to only do input stubs 
+
+def ensure_min_degree(adj: torch.Tensor, min_in: int = 2, min_out: int = 2) -> torch.Tensor:
+    """Ensure each node has at least min_in incoming and min_out outgoing edges."""
+    n = adj.shape[0]
+    
+    # Check and fix incoming edges
+    for j in range(n):
+        in_degree = int(adj[:, j].sum().item())  # Convert to Python integer
+        if in_degree < min_in:
+            # Add random incoming edges
+            n_missing = int(min_in - in_degree)  # Ensure integer
+            candidates = [i for i in range(n) if i != j and not adj[i, j].item()]
+            if candidates:
+                for i in np.random.choice(candidates, size=min(n_missing, len(candidates)), replace=False):
+                    adj[i, j] = True
+    
+    # Check and fix outgoing edges
+    for i in range(n):
+        out_degree = int(adj[i, :].sum().item())  # Convert to Python integer
+        if out_degree < min_out:
+            # Add random outgoing edges
+            n_missing = int(min_out - out_degree)  # Ensure integer
+            candidates = [j for j in range(n) if j != i and not adj[i, j].item()]
+            if candidates:
+                for j in np.random.choice(candidates, size=min(n_missing, len(candidates)), replace=False):
+                    adj[i, j] = True
+    
+    return adj 

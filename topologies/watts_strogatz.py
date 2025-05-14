@@ -2,13 +2,15 @@ import torch
 import networkx as nx
 import numpy as np
 from typing import Tuple, Dict, Any, Optional
-from .utils import calculate_density, get_network_stats, validate_network, _wire_inputs_outputs
+from .utils import calculate_density, get_network_stats, validate_network, _wire_inputs_outputs, ensure_io_stubs, ensure_min_degree
 
 def make_ws(
     n_in: int,
     n_hidden: int,
     n_out: int,
-    seed: Optional[int] = None
+    k: int = 4,
+    p: float = 0.1,
+    seed: int = None
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """
     Generate a Watts-Strogatz small-world network topology.
@@ -17,6 +19,8 @@ def make_ws(
         n_in: Number of input nodes
         n_hidden: Number of hidden nodes
         n_out: Number of output nodes
+        k: Number of neighbors for each node
+        p: Rewiring probability
         seed: Random seed for reproducibility
         
     Returns:
@@ -25,41 +29,44 @@ def make_ws(
         - Dictionary of network statistics
     """
     if seed is not None:
+        torch.manual_seed(seed)
         np.random.seed(seed)
         
-    # Initialize parameters
-    k = 6  # Changed from 8 to 6 to achieve density ~0.095
-    beta = 0.1  # Rewiring probability
-    
-    # Create WS graph for hidden layer
-    G = nx.watts_strogatz_graph(n_hidden, k, beta)
-    
-    # Convert to adjacency matrix
-    hidden_adj = nx.to_numpy_array(G)
-    
-    # Create full adjacency matrix
     n_total = n_in + n_hidden + n_out
-    adj = np.zeros((n_total, n_total))
+    adj_mask = torch.zeros(n_total, n_total, dtype=torch.bool)
     
-    # Place hidden layer connectivity in the full matrix
-    start_idx = n_in
-    end_idx = start_idx + n_hidden
-    adj[start_idx:end_idx, start_idx:end_idx] = hidden_adj
+    # Create random connections between input and hidden
+    n_edges = int(k * n_in)  # k connections per input
+    src_indices = torch.randint(0, n_in, (n_edges,))
+    dst_indices = torch.randint(n_in, n_in + n_hidden, (n_edges,))
+    adj_mask[src_indices, dst_indices] = True
     
-    # Convert to tensor
-    adj_tensor = torch.from_numpy(adj).float()
+    # Create random connections between hidden and output
+    n_edges = int(k * n_out)  # k connections per output
+    src_indices = torch.randint(n_in, n_in + n_hidden, (n_edges,))
+    dst_indices = torch.randint(n_in + n_hidden, n_total, (n_edges,))
+    adj_mask[src_indices, dst_indices] = True
     
-    # Wire inputs and outputs with controlled fan-in/out
-    adj_tensor = _wire_inputs_outputs(adj_tensor, n_in, n_hidden, n_out)
+    # Ensure IO connectivity
+    adj_mask = ensure_io_stubs(adj_mask, n_in, n_hidden, n_out)
+    
+    # Ensure minimum degree
+    adj_mask = ensure_min_degree(adj_mask, min_in=2, min_out=2)
+    
+    # Disable hidden-hidden edges
+    adj_mask[n_in:n_in+n_hidden, n_in:n_in+n_hidden] = False
+    
+    # Calculate metrics
+    meta = {
+        "k": k,
+        "p": p,
+        "active_hidden": int(adj_mask[n_in:-n_out, :].any(dim=0).sum()),
+        "effective_density": float(adj_mask[:n_in, n_in:-n_out].sum() / (n_in * n_hidden)),
+        "output_density": float(adj_mask[n_in:-n_out, -n_out:].sum() / (n_hidden * n_out))
+    }
     
     # Get network statistics
-    stats = get_network_stats(adj_tensor, n_in, n_hidden, n_out)
+    stats = get_network_stats(adj_mask, n_in, n_hidden, n_out)
+    meta.update(stats)
     
-    # Add WS-specific parameters to metadata
-    stats.update({
-        'type': 'watts_strogatz',
-        'k': float(k),
-        'beta': float(beta)
-    })
-    
-    return adj_tensor, stats 
+    return adj_mask, meta 

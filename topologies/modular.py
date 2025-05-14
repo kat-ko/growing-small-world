@@ -3,7 +3,10 @@ import networkx as nx
 import numpy as np
 from typing import Tuple, Dict, Any, Optional
 import community.community_louvain as community
-from .utils import calculate_density, get_network_stats, validate_network, _wire_inputs_outputs
+from .utils import (
+    calculate_density, get_network_stats, validate_network, 
+    _wire_inputs_outputs, ensure_io_stubs, ensure_min_degree
+)
 
 def make_modular(
     n_in: int,
@@ -12,9 +15,9 @@ def make_modular(
     density: float = 0.1,
     seed: Optional[int] = None,
     p_intra: float = 0.8,
-    p_inter: float = 0.008,  # Start with lower p_inter
+    p_inter: float = 0.008,
     n_modules: int = 6,
-    max_retries: int = 20  # Reduced from 100 to match suggested 20 attempts
+    max_retries: int = 20
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """
     Generate a modular network topology.
@@ -90,6 +93,15 @@ def make_modular(
         # Convert to tensor and wire inputs/outputs
         adj_tensor = torch.from_numpy(adj).float()
         adj_tensor = _wire_inputs_outputs(adj_tensor, n_in, n_hidden, n_out)
+        
+        # Ensure IO connectivity
+        adj_tensor = ensure_io_stubs(adj_tensor, n_in, n_hidden, n_out)
+        
+        # Ensure minimum degree
+        adj_tensor = ensure_min_degree(adj_tensor, min_in=2, min_out=2)
+        
+        # Disable hidden-hidden edges
+        adj_tensor[n_in:n_in+n_hidden, n_in:n_in+n_hidden] = False
         
         # Get network statistics
         stats = get_network_stats(adj_tensor, n_in, n_hidden, n_out)
