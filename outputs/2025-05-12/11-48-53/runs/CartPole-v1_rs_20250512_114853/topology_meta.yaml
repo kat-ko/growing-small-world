@@ -1,0 +1,9 @@
+type: random_sparse
+n_in: 4
+n_hidden: 64
+n_out: 2
+n_total: 70
+density: 0.1001984126984127
+avg_degree: 12.625
+avg_clustering: 0.18243127889267588
+avg_path_length: 1.880952380952381

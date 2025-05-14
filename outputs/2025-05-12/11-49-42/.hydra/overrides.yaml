@@ -1,0 +1,4 @@
+- env.name=CartPole-v1
+- topology.type=sw
+- seed=0
+- training.total_timesteps=10000

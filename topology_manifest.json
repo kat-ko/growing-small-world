@@ -1,0 +1,18 @@
+{
+  "random_sparse": {
+    "density": 0.10,
+    "clustering": 0.16,
+    "path": 1.9
+  },
+  "watts_strogatz": {
+    "density": 0.095,
+    "clustering": 0.40,
+    "path": 3.0
+  },
+  "modular": {
+    "density": 0.11,
+    "clustering": 0.60,
+    "path": 3.0,
+    "Q": 0.70
+  }
+} 

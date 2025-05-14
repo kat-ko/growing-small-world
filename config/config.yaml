@@ -1,0 +1,51 @@
+# Environment configuration
+env:
+  name: "CartPole-v1"  # Gymnasium environment name
+
+# Topology configuration
+topology:
+  type: "fc"  # "fc" for fully connected, "rs" for random sparse, "sw" for small-world, "modular" for modular
+  n_hidden: 64  # Number of hidden units
+  density: 0.1  # Edge density for random sparse topology
+  n_modules: 4  # Number of modules for modular topology
+  p_intra: 0.8  # Intra-module connection probability
+  p_inter: 0.1  # Inter-module connection probability
+
+# Training configuration
+training:
+  lr: 3e-4  # Learning rate
+  n_steps: 2048  # Number of steps per update
+  batch_size: 64  # Batch size
+  n_epochs: 10  # Number of epochs per update
+  gamma: 0.99  # Discount factor
+  gae_lambda: 0.95  # GAE lambda parameter
+  clip_range: 0.2  # PPO clip range
+  total_timesteps: 1000  # Total timesteps for training
+
+# Evaluation configuration
+evaluation:
+  topologies: ["fc", "rs", "sw", "modular"]  # Topologies to evaluate
+  n_seeds: 5  # Number of random seeds per topology
+  n_episodes: 100  # Number of evaluation episodes
+
+# Random seed
+seed: 42
+
+# Network parameters
+n_in: 4
+n_hidden: 64
+n_out: 2
+target_density: 0.10
+target_clustering: 0.60
+target_path_length: 2.0
+
+# NEAT parameters
+pop_size: 20
+n_generations: 20
+
+# Output settings
+output_dir: runs
+
+# Visualization settings
+viz:
+  save_plots: true  # Whether to save topology visualization plots 

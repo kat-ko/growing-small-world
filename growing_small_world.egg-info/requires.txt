@@ -1,0 +1,9 @@
+torch
+networkx
+numpy
+neat-python
+pytest
+pytest-cov
+hydra-core
+matplotlib
+pandas

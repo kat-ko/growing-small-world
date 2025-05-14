@@ -1,0 +1,56 @@
+[NEAT]
+fitness_criterion     = max
+fitness_threshold     = 100
+pop_size             = 50
+reset_on_extinction  = False
+
+[DefaultGenome]
+# node activation options
+activation_default      = tanh
+activation_options     = tanh
+
+# node add/remove rates
+node_add_prob           = 0.2
+node_delete_prob       = 0.2
+
+# node connection options
+connection_add_prob    = 0.5
+connection_delete_prob = 0.5
+
+# genome structure
+num_inputs            = 4
+num_hidden            = 1
+num_outputs           = 2
+initial_connection    = full
+feed_forward         = True
+
+# node bias options
+bias_init_mean        = 0.0
+bias_init_stdev      = 1.0
+bias_max_value       = 30.0
+bias_min_value       = -30.0
+
+# node response options
+response_init_mean    = 1.0
+response_init_stdev  = 0.0
+response_max_value   = 30.0
+response_min_value   = -30.0
+
+# node weight options
+weight_init_mean     = 0.0
+weight_init_stdev    = 1.0
+weight_max_value     = 30.0
+weight_min_value     = -30.0
+
+[DefaultSpeciesSet]
+compatibility_threshold = 3.0
+compatibility_disjoint_coefficient = 1.0
+compatibility_weight_coefficient = 0.5
+
+[DefaultStagnation]
+species_fitness_func = max
+max_stagnation      = 20
+
+[DefaultReproduction]
+elitism            = 2
+survival_threshold = 0.2 

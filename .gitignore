@@ -1,0 +1,24 @@
+# Ignore Python virtual environments
+venv/
+.env/
+ENV/
+env/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.so
+*.dll
+*.dylib
+*.lib
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Other common ignores
+*.log
+*.tmp
+*.swp
