@@ -5,7 +5,11 @@ import numpy as np
 from typing import Tuple, Dict, Any, Optional
 import os
 import json
-from .utils import calculate_density, get_network_stats, validate_network, _wire_inputs_outputs, calculate_clustering, calculate_path_length, ensure_io_stubs, ensure_min_degree
+from .utils import (
+    calculate_density, get_network_stats, validate_network, 
+    _wire_inputs_outputs, calculate_clustering, calculate_path_length, 
+    ensure_io_stubs, ensure_min_degree, pad_to_budget
+)
 import random
 
 class SmallWorldFitness:
@@ -358,11 +362,30 @@ class FinalWinnerReporter(neat.reporting.BaseReporter):
         
         return adj_matrix, stats
 
-def make_sw_neat(n_in: int, n_hidden: int, n_out: int, density: float = 0.1, target_clustering: float = 0.6, target_path_length: float = 2.0, seed: int = None) -> tuple[torch.Tensor, dict]:
+def make_sw_neat(
+    n_in: int,
+    n_hidden: int,
+    n_out: int,
+    density: float = 0.1,
+    target_clustering: float = 0.6,
+    target_path_length: float = 2.0,
+    seed: int = None,
+    target_n_weights: Optional[int] = None
+) -> tuple[torch.Tensor, dict]:
     """Create a small world topology using NEAT-inspired approach."""
     if seed is not None:
         torch.manual_seed(seed)
         np.random.seed(seed)
+    
+    print("\nInitializing small world NEAT network generation:")
+    print(f"- Input nodes: {n_in}")
+    print(f"- Hidden nodes: {n_hidden}")
+    print(f"- Output nodes: {n_out}")
+    print(f"- Target density: {density}")
+    print(f"- Target clustering: {target_clustering}")
+    print(f"- Target path length: {target_path_length}")
+    if target_n_weights is not None:
+        print(f"- Target weights: {target_n_weights}")
     
     n_total = n_in + n_hidden + n_out
     adj_mask = torch.zeros(n_total, n_total, dtype=torch.bool)
@@ -388,6 +411,10 @@ def make_sw_neat(n_in: int, n_hidden: int, n_out: int, density: float = 0.1, tar
     # Disable hidden-hidden edges
     adj_mask[n_in:n_in+n_hidden, n_in:n_in+n_hidden] = False
     
+    # Pad to target weight budget if specified
+    if target_n_weights is not None:
+        adj_mask = pad_to_budget(adj_mask, target_n_weights)
+    
     # Calculate metrics
     meta = {
         "density": density,
@@ -401,5 +428,16 @@ def make_sw_neat(n_in: int, n_hidden: int, n_out: int, density: float = 0.1, tar
     # Get network statistics
     stats = get_network_stats(adj_mask, n_in, n_hidden, n_out)
     meta.update(stats)
+    
+    if target_n_weights is not None:
+        meta["n_weights"] = int(adj_mask.sum())
+    
+    print("\nNetwork generation complete!")
+    print(f"Network density: {stats['density']:.3f}")
+    print(f"Average clustering: {stats['avg_clustering']:.3f}")
+    print(f"Average path length: {stats.get('avg_path_length', 'inf')}")
+    print(f"Average degree: {stats['avg_degree']:.1f}")
+    if target_n_weights is not None:
+        print(f"Total weights: {meta['n_weights']}")
     
     return adj_mask, meta 

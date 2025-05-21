@@ -125,7 +125,7 @@ def active_features(mask, n_in, n_hidden, n_out):
     inp_rows = mask[:n_in, n_in:-n_out]
     return (inp_rows.sum(dim=0) > 0).sum().item()
 
-def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> dict:
+def train_topology(cfg: DictConfig, topology_type: str, run_dir: str, target_n_weights: int) -> dict:
     """Train a single topology and save results."""
     print(f"\n=== Training {topology_type} Topology ===")
     
@@ -135,7 +135,6 @@ def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> dict:
     random.seed(cfg.seed)
     
     # Create topology directory (used for monitor.csv and other outputs)
-    # Note: run_dir passed to this function is actually the seed_dir from main()
     topology_specific_output_dir = os.path.join(run_dir, topology_type)
     os.makedirs(topology_specific_output_dir, exist_ok=True)
     monitor_file_path = os.path.join(topology_specific_output_dir, "monitor.csv")
@@ -144,7 +143,7 @@ def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> dict:
     base_env = gym.make(cfg.env.name)
     base_env.reset(seed=cfg.seed)
     env = DummyVecEnv([lambda: base_env])
-    env = VecMonitor(env, filename=monitor_file_path)  # <--- EXPLICIT FILENAME FOR VecMonitor
+    env = VecMonitor(env, filename=monitor_file_path)
     
     # Get input and output dimensions
     n_in = env.observation_space.shape[0]
@@ -154,24 +153,33 @@ def train_topology(cfg: DictConfig, topology_type: str, run_dir: str) -> dict:
     if topology_type == "fc":
         adj_mask, meta = make_fc(n_in, cfg.topology.n_hidden, n_out)
     elif topology_type == "rs":
-        adj_mask, meta = make_rs(n_in, cfg.topology.n_hidden, n_out, cfg.topology.density, cfg.seed)
+        adj_mask, meta = make_rs(n_in, cfg.topology.n_hidden, n_out, 
+                               density=cfg.topology.density, 
+                               seed=cfg.seed,
+                               target_n_weights=target_n_weights)
     elif topology_type == "sw_neat":
         adj_mask, meta = make_sw_neat(
             n_in, cfg.topology.n_hidden, n_out,
             density=cfg.topology.density,
             target_clustering=0.6,
             target_path_length=2.0,
-            seed=cfg.seed
+            seed=cfg.seed,
+            target_n_weights=target_n_weights
         )
     elif topology_type == "sw_ws":
-        adj_mask, meta = make_ws(n_in, cfg.topology.n_hidden, n_out)
+        adj_mask, meta = make_ws(n_in, cfg.topology.n_hidden, n_out,
+                               k=cfg.topology.k,
+                               p=cfg.topology.p,
+                               seed=cfg.seed,
+                               target_n_weights=target_n_weights)
     elif topology_type == "modular":
         adj_mask, meta = make_modular(
             n_in, cfg.topology.n_hidden, n_out,
             n_modules=cfg.topology.n_modules,
             p_intra=cfg.topology.p_intra,
             p_inter=cfg.topology.p_inter,
-            seed=cfg.seed
+            seed=cfg.seed,
+            target_n_weights=target_n_weights
         )
     else:
         raise ValueError(f"Unknown topology type: {topology_type}")
@@ -301,31 +309,31 @@ def main(cfg: DictConfig):
         "sw_ws"         # Small World Watts-Strogatz
     ]
 
-    # --- new outer loop over seeds ---
-    # Ensure cfg.evaluation.n_seeds exists in your Hydra config
-    # For example, in config.yaml: 
-    # evaluation:
-    #   n_seeds: 3
-    n_seeds = cfg.evaluation.get('n_seeds', 1) # Default to 1 seed if not specified
+    # Compute baseline weight budget once
+    env = gym.make(cfg.env.name)
+    n_in = env.observation_space.shape[0]
+    n_out = env.action_space.n if hasattr(env.action_space, "n") else env.action_space.shape[0]
+    n_w_fc = (n_in + cfg.topology.n_hidden) * cfg.topology.n_hidden + \
+             (cfg.topology.n_hidden + 1) * n_out  # +1 for biases
+    target_n_weights = int(n_w_fc)
+    print(f"\nTarget weight budget: {target_n_weights}")
+    env.close()
+
+    n_seeds = cfg.evaluation.get('n_seeds', 1)
     print(f"\n=== Starting Experiment Run for {n_seeds} Seed(s) ===")
 
     for seed_idx in range(n_seeds):
-        current_seed = cfg.seed + seed_idx # Allow overriding initial seed from CLI, then increment
-                                         # Or, if you prefer strict seed numbers 0,1,2... use seed_idx directly
-                                         # For now, using initial cfg.seed as base and incrementing.
-                                         # If cfg.seed is 0, seeds will be 0, 1, 2... for n_seeds=3.
-                                         # If cfg.seed is 42, seeds will be 42, 43, 44...
-        # Update config with the current seed for this iteration
-        cfg_copy = cfg.copy() # Operate on a copy for this seed run to avoid polluting original cfg for next seed
-        cfg_copy.seed = current_seed 
+        current_seed = cfg.seed + seed_idx
+        cfg_copy = cfg.copy()
+        cfg_copy.seed = current_seed
         
         print(f"\n--- Running Seed {seed_idx + 1}/{n_seeds} (Actual Seed Value: {current_seed}) ---")
-        seed_dir = os.path.join(run_dir, f"seed_{current_seed}") # Use actual seed value in dir name
+        seed_dir = os.path.join(run_dir, f"seed_{current_seed}")
         os.makedirs(seed_dir, exist_ok=True)
 
-        seed_summaries = {}                 # collect summaries for this seed
-        for topology_type in topologies:         # existing inner loop (renamed topology to topology_type for clarity)
-            summary = train_topology(cfg_copy, topology_type, seed_dir) # Pass cfg_copy and seed_dir
+        seed_summaries = {}
+        for topology_type in topologies:
+            summary = train_topology(cfg_copy, topology_type, seed_dir, target_n_weights)
             seed_summaries[topology_type] = summary
 
         # save one YAML per seed
@@ -336,9 +344,8 @@ def main(cfg: DictConfig):
     
     print(f"\nAll training across all seeds complete! Results saved to: {run_dir}")
 
-    # Run pytest for unit tests (outside the seed loop, runs once)
+    # Run pytest for unit tests
     print("\n=== Running Unit Tests ===")
-    # test_exit_code = pytest.main(["-v", "tests/test_mask.py"]) # Use -q for less verbose output as requested
     test_exit_code = pytest.main(["-q", "tests/test_mask.py"])
     if test_exit_code == 0:
         print("All tests passed!")

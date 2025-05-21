@@ -5,7 +5,8 @@ from typing import Tuple, Dict, Any, Optional
 import community.community_louvain as community
 from .utils import (
     calculate_density, get_network_stats, validate_network, 
-    _wire_inputs_outputs, ensure_io_stubs, ensure_min_degree
+    _wire_inputs_outputs, ensure_io_stubs, ensure_min_degree,
+    pad_to_budget, get_structural_stats
 )
 
 def make_modular(
@@ -17,7 +18,8 @@ def make_modular(
     p_intra: float = 0.8,
     p_inter: float = 0.008,
     n_modules: int = 6,
-    max_retries: int = 20
+    max_retries: int = 20,
+    target_n_weights: Optional[int] = None
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """
     Generate a modular network topology.
@@ -32,6 +34,7 @@ def make_modular(
         p_inter: Initial probability of connections between modules
         n_modules: Number of modules to create
         max_retries: Maximum attempts to achieve target density and modularity
+        target_n_weights: Target number of weights for the network
         
     Returns:
         Tuple of:
@@ -47,6 +50,8 @@ def make_modular(
     print(f"- Hidden nodes: {n_hidden}")
     print(f"- Output nodes: {n_out}")
     print(f"- Target density: {density}")
+    if target_n_weights is not None:
+        print(f"- Target weights: {target_n_weights}")
     
     # Calculate module sizes
     module_size = n_hidden // n_modules
@@ -59,6 +64,8 @@ def make_modular(
     best_modularity = 0.0
     best_density_diff = float('inf')
     current_p_inter = p_inter
+    last_valid_adj = None
+    last_valid_stats = None
     
     for attempt in range(max_retries):
         # Create block matrix for hidden nodes
@@ -100,9 +107,6 @@ def make_modular(
         # Ensure minimum degree
         adj_tensor = ensure_min_degree(adj_tensor, min_in=2, min_out=2)
         
-        # Disable hidden-hidden edges
-        adj_tensor[n_in:n_in+n_hidden, n_in:n_in+n_hidden] = False
-        
         # Get network statistics
         stats = get_network_stats(adj_tensor, n_in, n_hidden, n_out)
         
@@ -120,6 +124,11 @@ def make_modular(
         
         # Calculate density difference
         density_diff = abs(core_stats['density'] - density)
+        
+        # Store last valid network
+        if modularity >= 0.60:
+            last_valid_adj = adj_tensor.clone()
+            last_valid_stats = stats.copy()
         
         # Check if this is the best solution so far
         is_better = False
@@ -158,11 +167,18 @@ def make_modular(
         else:
             current_p_inter *= 1.1  # Too sparse, increase inter-module connections
     
+    # Use best solution if found, otherwise use last valid network
     if best_adj is None:
         print("\nWarning: Could not find solution meeting all criteria.")
-        print("Using last generated network.")
-        best_adj = adj_tensor
-        best_stats = stats
+        if last_valid_adj is not None:
+            print("Using last valid network with modularity >= 0.60.")
+            best_adj = last_valid_adj
+            best_stats = last_valid_stats
+        else:
+            print("No valid networks found. Using last generated network.")
+            best_adj = adj_tensor
+            best_stats = stats
+        
         best_stats.update({
             'type': 'modular',
             'modularity': float(modularity),
@@ -170,6 +186,26 @@ def make_modular(
             'p_intra': float(p_intra),
             'p_inter': float(current_p_inter)
         })
+        
+        # Ensure minimum degrees even in fallback case
+        best_adj = ensure_min_degree(best_adj, min_in=2, min_out=2)
+    
+    # Disable hidden-hidden edges (moved here to ensure it's applied to all paths)
+    best_adj[n_in:n_in+n_hidden, n_in:n_in+n_hidden] = False
+    
+    # Verify hidden-hidden edges are disabled before proceeding
+    assert best_adj[n_in:n_in+n_hidden, n_in:n_in+n_hidden].sum() == 0, "Hidden-hidden edges not disabled"
+    
+    # Pad to target weight budget if specified
+    if target_n_weights is not None:
+        best_adj = pad_to_budget(best_adj, target_n_weights)
+        best_stats['n_weights'] = int(best_adj.sum())
+    
+    # Add structural statistics
+    best_stats.update(get_structural_stats(best_adj, n_in, n_hidden, n_out))
+    
+    # Verify final network properties
+    assert best_adj.sum() > 0, "Network has no edges"
     
     print("\nNetwork generation complete!")
     print(f"Number of communities: {len(set(partition.values()))}")
@@ -177,5 +213,7 @@ def make_modular(
     print(f"Average clustering: {core_stats['avg_clustering']:.3f}")
     print(f"Average path length: {core_stats.get('avg_path_length', float('inf')):.3f}")
     print(f"Average degree: {core_stats['avg_degree']:.1f}")
+    if target_n_weights is not None:
+        print(f"Total weights: {best_stats['n_weights']}")
     
     return best_adj, best_stats 

@@ -228,3 +228,83 @@ def ensure_min_degree(adj: torch.Tensor, min_in: int = 2, min_out: int = 2) -> t
                     adj[i, j] = True
     
     return adj 
+
+def pad_to_budget(adj_mask: torch.Tensor, target_n_weights: int) -> torch.Tensor:
+    """
+    Pad network to target weight budget while preserving topology characteristics.
+    
+    Args:
+        adj_mask: Binary adjacency matrix
+        target_n_weights: Target number of weights
+        
+    Returns:
+        Padded adjacency matrix
+    """
+    current_weights = int(adj_mask.sum())
+    if current_weights >= target_n_weights:
+        return adj_mask
+    
+    # Calculate number of weights to add
+    n_weights_to_add = target_n_weights - current_weights
+    
+    # Get current network properties
+    n_total = adj_mask.shape[0]
+    n_in = int(n_total * 0.1)  # Assuming 10% input nodes
+    n_out = int(n_total * 0.1)  # Assuming 10% output nodes
+    n_hidden = n_total - n_in - n_out
+    
+    # Calculate current densities
+    input_density = float(adj_mask[:n_in, n_in:-n_out].sum() / (n_in * n_hidden))
+    output_density = float(adj_mask[n_in:-n_out, -n_out:].sum() / (n_hidden * n_out))
+    
+    # Calculate target densities based on current ratios
+    total_possible_weights = n_in * n_hidden + n_hidden * n_out
+    target_input_weights = int(n_weights_to_add * (n_in * n_hidden) / total_possible_weights)
+    target_output_weights = n_weights_to_add - target_input_weights
+    
+    # Add weights to input connections
+    if target_input_weights > 0:
+        input_mask = ~adj_mask[:n_in, n_in:-n_out]
+        input_indices = torch.nonzero(input_mask)
+        if len(input_indices) > 0:
+            n_input_edges = min(target_input_weights, len(input_indices))
+            selected_indices = torch.randperm(len(input_indices))[:n_input_edges]
+            for idx in selected_indices:
+                i, j = input_indices[idx]
+                adj_mask[i, j + n_in] = True
+    
+    # Add weights to output connections
+    if target_output_weights > 0:
+        output_mask = ~adj_mask[n_in:-n_out, -n_out:]
+        output_indices = torch.nonzero(output_mask)
+        if len(output_indices) > 0:
+            n_output_edges = min(target_output_weights, len(output_indices))
+            selected_indices = torch.randperm(len(output_indices))[:n_output_edges]
+            for idx in selected_indices:
+                i, j = output_indices[idx]
+                adj_mask[i + n_in, j + n_in + n_hidden] = True
+    
+    # Verify final weight count
+    final_weights = int(adj_mask.sum())
+    if final_weights != target_n_weights:
+        print(f"Warning: Could not achieve exact target weight count. Got {final_weights} instead of {target_n_weights}")
+    
+    return adj_mask
+
+def get_structural_stats(adj: torch.Tensor, n_in: int, n_hidden: int, n_out: int) -> Dict[str, float]:
+    """Get detailed structural statistics about the network."""
+    stats = {}
+    
+    # Weight counts
+    stats['n_weights'] = int(adj.sum())
+    
+    # Fan-in statistics
+    fan_in_hidden = adj[:n_in, n_in:n_in+n_hidden].sum(dim=0)
+    fan_in_out = adj[n_in:n_in+n_hidden, n_in+n_hidden:].sum(dim=0)
+    
+    stats['fan_in_hidden_mean'] = float(fan_in_hidden.mean())
+    stats['fan_in_hidden_std'] = float(fan_in_hidden.std())
+    stats['fan_in_out_mean'] = float(fan_in_out.mean())
+    stats['fan_in_out_std'] = float(fan_in_out.std())
+    
+    return stats 

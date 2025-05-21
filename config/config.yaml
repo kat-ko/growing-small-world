@@ -10,6 +10,8 @@ topology:
   n_modules: 4  # Number of modules for modular topology
   p_intra: 0.8  # Intra-module connection probability
   p_inter: 0.1  # Inter-module connection probability
+  k: 8  # Number of nearest neighbors for Watts-Strogatz
+  beta: 0.1  # Rewiring probability for Watts-Strogatz
 
 # Training configuration
 training:
